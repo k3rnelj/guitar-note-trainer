@@ -1,0 +1,389 @@
+import React, { useState, useEffect, useRef } from 'react';
+// Correctly import the PitchDetector class from the 'pitchy' library
+import { PitchDetector } from 'pitchy';
+
+// Fretboard data: notes for each string and fret
+const fretboard = {
+  6: ['F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E'], // E string (low)
+  5: ['A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A'], // A string
+  4: ['D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C', 'C#', 'D'], // D string
+  3: ['G#', 'A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G'], // G string
+  2: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], // B string
+  1: ['F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E'], // E string (high)
+};
+
+const openStrings = { 6: 'E', 5: 'A', 4: 'D', 3: 'G', 2: 'B', 1: 'E' };
+// CORRECTED: The notes array now follows the standard chromatic scale order starting from C.
+// This is crucial for the MIDI-to-note conversion formula to work correctly.
+const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Component to render the fretboard diagram
+const FretboardDiagram = ({ targetNote }) => {
+  const positions = [];
+  // Find all positions of the target note on the fretboard
+  for (const string in fretboard) {
+    if (openStrings[string] === targetNote) {
+      positions.push({ string: parseInt(string), fret: 0 });
+    }
+    fretboard[string].forEach((note, fret) => {
+      if (note === targetNote) {
+        positions.push({ string: parseInt(string), fret: fret + 1 });
+      }
+    });
+  }
+
+  const fretCount = 12;
+  const inlays = { 3: 1, 5: 1, 7: 1, 9: 1, 12: 2 };
+
+  return (
+    <div className="mt-6 font-sans">
+      <h3 className="text-lg font-bold text-white mb-3 text-center">'{targetNote}' Positions</h3>
+      
+      {/* Main Fretboard Grid Container */}
+      <div className="relative">
+        {/* Grid for strings and frets (background) */}
+        <div className="grid" style={{ gridTemplateColumns: '30px repeat(12, 1fr)' }}>
+          {[...Array(6 * (fretCount + 1))].map((_, i) => {
+            const stringIndex = Math.floor(i / (fretCount + 1));
+            const fretIndex = i % (fretCount + 1);
+            return (
+              <div key={i} className="relative h-6 border-r border-gray-600">
+                {/* String Line - Thinnest (high E) at top, thickest (low E) at bottom */}
+                <div 
+                  className="absolute w-full bg-gray-500" 
+                  style={{ 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    height: `${(stringIndex + 1) / 2.5 + 0.5}px` 
+                  }}
+                ></div>
+                {/* Nut */}
+                {fretIndex === 0 && <div className="absolute w-1.5 h-full bg-gray-300 right-0 top-0 -mr-0.5 z-10"></div>}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Overlay grid for notes and inlays */}
+        <div className="absolute top-0 left-0 w-full h-full grid" style={{ gridTemplateColumns: '30px repeat(12, 1fr)', gridTemplateRows: 'repeat(6, 1fr)' }}>
+          {/* Note positions - Flipped gridRow to match visual representation */}
+          {positions.map(({ string, fret }) => (
+            <div
+              key={`note-${string}-${fret}`}
+              className="flex items-center justify-center z-20"
+              style={{ gridRow: string, gridColumn: fret + 1 }}
+            >
+              <div className="w-5 h-5 bg-blue-500 rounded-full border-2 border-white shadow-lg"></div>
+            </div>
+          ))}
+          
+          {/* Inlays - Flipped to match visual representation */}
+          {Object.entries(inlays).map(([fret, count]) => {
+            const fretNum = parseInt(fret);
+            if (count === 1) {
+              return (
+                <div key={`inlay-${fret}`} className="flex items-center justify-center" style={{ gridRow: '3 / span 2', gridColumn: fretNum + 1 }}>
+                  <div className="w-2.5 h-2.5 bg-gray-400/50 rounded-full"></div>
+                </div>
+              );
+            } else { // Double inlay for 12th fret
+              return (
+                <React.Fragment key={`inlay-${fret}`}>
+                  <div className="flex items-center justify-center" style={{ gridRow: '2 / span 2', gridColumn: fretNum + 1 }}>
+                    <div className="w-2.5 h-2.5 bg-gray-400/50 rounded-full"></div>
+                  </div>
+                  <div className="flex items-center justify-center" style={{ gridRow: '4 / span 2', gridColumn: fretNum + 1 }}>
+                    <div className="w-2.5 h-2.5 bg-gray-400/50 rounded-full"></div>
+                  </div>
+                </React.Fragment>
+              );
+            }
+          })}
+        </div>
+      </div>
+
+      {/* Fret numbers */}
+      <div className="grid mt-1 text-xs text-gray-400" style={{ gridTemplateColumns: '30px repeat(12, 1fr)' }}>
+        {[...Array(fretCount + 1)].map((_, i) => (
+          <div key={i} className="text-center">{i}</div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+const App = () => {
+  const [targetNote, setTargetNote] = useState(null);
+  const [heardNote, setHeardNote] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [successCount, setSuccessCount] = useState(0);
+  const [requiredSuccesses, setRequiredSuccesses] = useState(3);
+  const [showDiagram, setShowDiagram] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(null);
+  const [isNoteHeld, setIsNoteHeld] = useState(false);
+  const [lastOctave, setLastOctave] = useState(null);
+  // State for the audio playback toggle
+  const [playNoteSound, setPlayNoteSound] = useState(false);
+  // State to prevent self-detection during playback
+  const [isPlaybackActive, setIsPlaybackActive] = useState(false);
+
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const detectorRef = useRef(null);
+  const inputDataRef = useRef(null);
+  const streamRef = useRef(null);
+
+  // Function to play a tone for the target note
+  const playTone = (note) => {
+    if (!audioContextRef.current) return;
+    const noteIndex = notes.indexOf(note);
+    if (noteIndex === -1) return;
+
+    // C4 is MIDI note 60. We'll play notes in the 4th octave.
+    const midiNote = 60 + noteIndex;
+    const frequency = 440 * Math.pow(2, (midiNote - 69) / 12);
+
+    const oscillator = audioContextRef.current.createOscillator();
+    const gainNode = audioContextRef.current.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContextRef.current.destination);
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = frequency;
+    
+    // Create a simple attack/decay envelope to avoid clicking
+    const now = audioContextRef.current.currentTime;
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(0.5, now + 0.01);
+    gainNode.gain.linearRampToValueAtTime(0, now + 0.4);
+
+    oscillator.start(now);
+    oscillator.stop(now + 0.5);
+  };
+
+  const startListening = async () => {
+    try {
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      audioContextRef.current.createMediaStreamSource(stream).connect(analyserRef.current);
+      detectorRef.current = PitchDetector.forFloat32Array(analyserRef.current.fftSize);
+      inputDataRef.current = new Float32Array(detectorRef.current.inputLength);
+      setIsListening(true);
+      setFeedback('Listening...');
+      setShowDiagram(false);
+      setIsCorrect(null);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      setFeedback('Could not access microphone.');
+    }
+  };
+
+  const stopListening = () => {
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+    }
+    setIsListening(false);
+    setFeedback('');
+  };
+
+  const generateNewNote = (fromTrigger = false) => {
+    stopListening();
+    
+    const newNote = notes[Math.floor(Math.random() * notes.length)];
+    setTargetNote(newNote);
+    setSuccessCount(0);
+    setHeardNote(null);
+    setShowDiagram(false);
+    setIsCorrect(null);
+    setIsNoteHeld(false);
+    setLastOctave(null);
+
+    const startSequence = () => {
+      if (fromTrigger) {
+        startListening();
+      }
+    };
+
+    if (playNoteSound) {
+      setIsPlaybackActive(true);
+      playTone(newNote);
+      setTimeout(() => {
+        setIsPlaybackActive(false);
+        startSequence();
+      }, 500); // Wait for tone to finish plus a small buffer
+    } else {
+      startSequence();
+    }
+  };
+
+
+  useEffect(() => {
+    let timeoutId;
+
+    const updatePitch = () => {
+      if (!isListening || isPlaybackActive || !analyserRef.current || !detectorRef.current || !inputDataRef.current || !audioContextRef.current) {
+        return;
+      }
+      analyserRef.current.getFloatTimeDomainData(inputDataRef.current);
+      let rms = 0;
+      for (let i = 0; i < inputDataRef.current.length; i++) {
+        rms += inputDataRef.current[i] * inputDataRef.current[i];
+      }
+      rms = Math.sqrt(rms / inputDataRef.current.length);
+      const volumeThreshold = 0.01;
+      
+      if (rms > volumeThreshold) {
+        const [pitch, clarity] = detectorRef.current.findPitch(inputDataRef.current, audioContextRef.current.sampleRate);
+        if (clarity > 0.9) {
+          const midi = 12 * (Math.log2(pitch / 440)) + 69;
+          const roundedMidi = Math.round(midi);
+          const noteIndex = roundedMidi % 12;
+          const detectedNote = notes[noteIndex];
+          const currentOctave = Math.floor(roundedMidi / 12) - 1;
+
+          if (roundedMidi === 76) {
+            generateNewNote(true);
+            return; 
+          }
+
+          if (roundedMidi === 40 && detectedNote !== targetNote) {
+            setShowDiagram(true);
+            timeoutId = setTimeout(updatePitch, 100);
+            return;
+          }
+
+          setHeardNote(detectedNote);
+
+          if (detectedNote === targetNote) {
+            if (!isNoteHeld && currentOctave !== lastOctave) {
+              setFeedback('Correct!');
+              setIsCorrect(true);
+              setSuccessCount(prev => prev + 1);
+              setIsNoteHeld(true);
+              setLastOctave(currentOctave);
+            }
+          } else {
+            setFeedback(`Incorrect. You played ${detectedNote}. Play low E for a hint or high E (12th fret) for a new note.`);
+            setIsCorrect(false);
+            setIsNoteHeld(false);
+          }
+        }
+      } else {
+        setIsNoteHeld(false);
+      }
+      timeoutId = setTimeout(updatePitch, 100);
+    };
+
+    if (isListening) {
+      updatePitch();
+    }
+    return () => clearTimeout(timeoutId);
+  }, [isListening, targetNote, isNoteHeld, lastOctave, isPlaybackActive]);
+
+  useEffect(() => {
+    if (requiredSuccesses > 0 && successCount >= requiredSuccesses) {
+      setFeedback(`You found ${targetNote} ${requiredSuccesses} times! Well done!`);
+    }
+  }, [successCount, requiredSuccesses, targetNote]);
+
+  useEffect(() => {
+    generateNewNote(false);
+    return () => {
+        stopListening();
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+        }
+    }
+  }, []);
+
+  return (
+    <div className="bg-gray-900 text-white min-h-screen flex flex-col items-center pt-8 sm:pt-12 px-4 font-sans">
+      <div className="w-full max-w-md mx-auto">
+        <h1 className="text-4xl font-bold text-center mb-6">Guitar Note Trainer</h1>
+        
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-6 text-center">
+          <p className="text-lg mb-2">Play this note:</p>
+          <p className="text-7xl font-bold text-blue-400 mb-4">{targetNote}</p>
+
+          <div className="flex justify-center items-center space-x-8 mb-4">
+            <div>
+              <label htmlFor="successes" className="mr-2">Finds needed:</label>
+              <input
+                id="successes"
+                type="number"
+                min="1"
+                value={requiredSuccesses}
+                onChange={(e) => setRequiredSuccesses(parseInt(e.target.value, 10) || 1)}
+                className="bg-gray-700 text-white w-16 text-center rounded"
+                disabled={isListening}
+              />
+            </div>
+            {/* Audio Playback Toggle Switch */}
+            <div className="flex items-center justify-center space-x-2 text-gray-300">
+                <label htmlFor="playSound" className="text-sm">Play Note</label>
+                <button
+                    id="playSound"
+                    onClick={() => setPlayNoteSound(!playNoteSound)}
+                    className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors duration-300 focus:outline-none ${playNoteSound ? 'bg-blue-500' : 'bg-gray-600'}`}
+                >
+                    <span
+                        className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${playNoteSound ? 'translate-x-6' : 'translate-x-1'}`}
+                    />
+                </button>
+            </div>
+          </div>
+
+          <p className="text-xl">Found: <span className="font-bold">{successCount} / {requiredSuccesses}</span></p>
+        </div>
+
+        <div className="flex flex-col items-center space-y-4 mb-6">
+          {!isListening ? (
+            <button 
+                onClick={startListening} 
+                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg text-xl transition-colors w-48"
+            >
+              Start Listening
+            </button>
+          ) : (
+            <button onClick={stopListening} className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-xl transition-colors w-48">
+              Stop Listening
+            </button>
+          )}
+          {/* Button with caption */}
+          <div className="text-center">
+            <button onClick={() => generateNewNote(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg text-xl transition-colors w-48">
+              New Note
+            </button>
+            <p className="text-xs text-gray-400 mt-1">(or play high E, 12th fret)</p>
+          </div>
+        </div>
+
+        {feedback && (
+          <div className={`p-4 rounded-lg text-center font-bold text-xl ${
+            isCorrect === true ? 'bg-green-500/20 text-green-400' : 
+            isCorrect === false ? 'bg-red-500/20 text-red-400' : 
+            'bg-gray-700/50 text-gray-300'
+          }`}>
+            {feedback}
+          </div>
+        )}
+
+        {showDiagram && <FretboardDiagram targetNote={targetNote} />}
+      </div>
+    </div>
+  );
+};
+
+export default App;
+
